@@ -1,6 +1,6 @@
 # ImgBB
 
-ImgBB is an ImgBB api tool.
+ImgBB is an ImgBB api client.
 
 Installation
 

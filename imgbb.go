@@ -4,11 +4,10 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
-	"io/ioutil"
 	"mime/multipart"
 	"net/http"
-	"time"
 )
 
 const (
@@ -19,64 +18,84 @@ const (
 )
 
 var (
-	// ErrFileSize - is an error for too large image size
-	ErrFileSize = errors.New("Image is too large. Max image size is 32mb")
+	// ErrFileEmpty is an error for empty image file
+	ErrFileEmpty = errors.New("image file is empty")
+
+	// ErrFileSize is an error for too large image size
+	ErrFileSize = errors.New("image is too large, max image size is 32mb")
 )
 
-// Image - is a struct with image data to upload
+// Image is a struct with image data to upload
 type Image struct {
-	Name       string
-	Size       int
-	Expiration string
-	File       []byte
+	name       string
+	size       int
+	expiration string
+	file       []byte
 }
 
-// NewImage - create a new Image
+// NewImage creates a new Image
 func NewImage(name string, expiration string, file []byte) *Image {
 	return &Image{
-		Name:       name,
-		Size:       len(file),
-		Expiration: expiration,
-		File:       file,
+		name:       name,
+		size:       len(file),
+		expiration: expiration,
+		file:       file,
 	}
 }
 
-// ImgBBError - is a struct with upload error response
+// ImgBBError is an upload error response
 type ImgBBError struct {
 	StatusCode int     `json:"status_code"`
 	StatusText string  `json:"status_txt"`
-	Err        errInfo `json:"error"`
+	Err        ErrInfo `json:"error"`
 }
 
-type errInfo struct {
+func (e ImgBBError) Error() string {
+	return fmt.Sprintf("%d %s: %v", e.StatusCode, e.StatusText, e.Err)
+}
+
+func (e ImgBBError) Is(target error) bool {
+	if err, ok := target.(ImgBBError); !ok {
+		return false
+	} else {
+		return err.StatusCode == e.StatusCode && err.StatusText == e.StatusText
+	}
+}
+
+// ErrInfo is an upload error info response
+type ErrInfo struct {
 	Message string `json:"message"`
 	Code    int    `json:"code"`
 	Context string `json:"context"`
 }
 
-// ImgBBResult - is a struct with upload success response
-type ImgBBResult struct {
-	Data       data `json:"data"`
+// ImgBBResponse is an upload success response
+type ImgBBResponse struct {
+	Data       Data `json:"data"`
 	StatusCode int  `json:"status"`
 	Success    bool `json:"success"`
 }
 
-type data struct {
+// Data is an information about uploaded file
+type Data struct {
 	ID         string `json:"id"`
 	Title      string `json:"title"`
 	UrlViewer  string `json:"url_viewer"`
 	Url        string `json:"url"`
 	DisplayUrl string `json:"display_url"`
+	Width      int    `json:"width"`
+	Height     int    `json:"height"`
 	Size       int    `json:"size"`
 	Time       string `json:"time"`
 	Expiration string `json:"expiration"`
-	Image      info   `json:"image"`
-	Thumb      info   `json:"thumb"`
-	Medium     info   `json:"medium"`
+	Image      Info   `json:"image"`
+	Thumb      Info   `json:"thumb"`
+	Medium     Info   `json:"medium"`
 	DeleteUrl  string `json:"delete_url"`
 }
 
-type info struct {
+// Info is an additional info about uploaded file
+type Info struct {
 	Filename  string `json:"filename"`
 	Name      string `json:"name"`
 	Mime      string `json:"mime"`
@@ -84,31 +103,55 @@ type info struct {
 	Url       string `json:"url"`
 }
 
-// ImgBB - is a struct with ImgBB api key and http client
+type Option func(*ImgBB)
+
+func WithEndpoint(endpoint string) Option {
+	return func(imgBB *ImgBB) {
+		imgBB.endpoint = endpoint
+	}
+}
+
+// ImgBB is a ImgBB api client
 type ImgBB struct {
-	Key    string
-	Client *http.Client
+	client http.Client
+
+	key string
+
+	endpoint string
 }
 
-// NewImgBB - create a new ImgBB
-func NewImgBB(key string, timeout time.Duration) *ImgBB {
-	client := &http.Client{
-		Timeout: timeout,
+// New create a new ImgBB api client
+func New(client http.Client, key string, opts ...Option) *ImgBB {
+	imgBB := &ImgBB{
+		client:   client,
+		key:      key,
+		endpoint: endpoint,
 	}
 
-	return &ImgBB{
-		Key:    key,
-		Client: client,
+	for _, o := range opts {
+		o(imgBB)
 	}
+
+	return imgBB
 }
 
-// Upload - is a function to upload image to ImgBB
-func (i *ImgBB) Upload(img *Image) (*ImgBBResult, *ImgBBError) {
-	if img.Size > 33554432 {
-		return nil, &ImgBBError{
-			StatusCode: http.StatusRequestEntityTooLarge,
-			StatusText: http.StatusText(http.StatusRequestEntityTooLarge),
-			Err: errInfo{
+// Upload is a function to upload image to ImgBB
+func (i *ImgBB) Upload(img *Image) (*ImgBBResponse, error) {
+	if img.size <= 0 {
+		return nil, ImgBBError{
+			StatusCode: http.StatusBadRequest,
+			StatusText: http.StatusText(http.StatusBadRequest),
+			Err: ErrInfo{
+				Message: ErrFileEmpty.Error(),
+			},
+		}
+	}
+
+	if img.size > 33554432 {
+		return nil, ImgBBError{
+			StatusCode: http.StatusBadRequest,
+			StatusText: http.StatusText(http.StatusBadRequest),
+			Err: ErrInfo{
 				Message: ErrFileSize.Error(),
 			},
 		}
@@ -122,30 +165,46 @@ func (i *ImgBB) Upload(img *Image) (*ImgBBResult, *ImgBBError) {
 		defer m.Close()
 
 		field := "image"
-		m.WriteField("key", i.Key)
-		m.WriteField("type", "file")
-		m.WriteField("action", "upload")
-		if len(img.Expiration) > 0 {
-			m.WriteField("expiration", img.Expiration)
-		}
 
-		part, err := m.CreateFormFile(field, img.Name)
+		err := m.WriteField("key", i.key)
 		if err != nil {
 			return
 		}
 
-		if _, err = io.Copy(part, bytes.NewReader(img.File)); err != nil {
+		err = m.WriteField("type", "file")
+		if err != nil {
+			return
+		}
+
+		err = m.WriteField("action", "upload")
+		if err != nil {
+			return
+		}
+
+		if len(img.expiration) > 0 {
+			err = m.WriteField("expiration", img.expiration)
+			if err != nil {
+				return
+			}
+		}
+
+		part, err := m.CreateFormFile(field, img.name)
+		if err != nil {
+			return
+		}
+
+		if _, err = io.Copy(part, bytes.NewReader(img.file)); err != nil {
 			return
 		}
 	}()
 
-	req, err := http.NewRequest(http.MethodPost, endpoint, r)
+	req, err := http.NewRequest(http.MethodPost, i.endpoint, r)
 	if err != nil {
-		return nil, &ImgBBError{
+		return nil, ImgBBError{
 			StatusCode: http.StatusInternalServerError,
 			StatusText: http.StatusText(http.StatusInternalServerError),
-			Err: errInfo{
-				Message: err.Error(),
+			Err: ErrInfo{
+				Message: fmt.Sprintf("new request: %v", err),
 			},
 		}
 	}
@@ -155,13 +214,13 @@ func (i *ImgBB) Upload(img *Image) (*ImgBBResult, *ImgBBError) {
 	req.Header.Add("Origin", origin)
 	req.Header.Add("Referer", referer)
 
-	resp, err := i.Client.Do(req)
+	resp, err := i.client.Do(req)
 	if err != nil {
-		return nil, &ImgBBError{
+		return nil, ImgBBError{
 			StatusCode: http.StatusInternalServerError,
 			StatusText: http.StatusText(http.StatusInternalServerError),
-			Err: errInfo{
-				Message: err.Error(),
+			Err: ErrInfo{
+				Message: fmt.Sprintf("http client request do: %v", err),
 			},
 		}
 	}
@@ -170,26 +229,26 @@ func (i *ImgBB) Upload(img *Image) (*ImgBBResult, *ImgBBError) {
 	return i.respParse(resp)
 }
 
-func (i *ImgBB) respParse(resp *http.Response) (*ImgBBResult, *ImgBBError) {
-	data, err := ioutil.ReadAll(resp.Body)
+func (i *ImgBB) respParse(resp *http.Response) (*ImgBBResponse, error) {
+	data, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, &ImgBBError{
+		return nil, ImgBBError{
 			StatusCode: http.StatusInternalServerError,
 			StatusText: http.StatusText(http.StatusInternalServerError),
-			Err: errInfo{
-				Message: err.Error(),
+			Err: ErrInfo{
+				Message: fmt.Sprintf("read response body: %v", err),
 			},
 		}
 	}
 
 	if resp.StatusCode == http.StatusOK {
-		var res ImgBBResult
+		var res ImgBBResponse
 		if err := json.Unmarshal(data, &res); err != nil {
-			return nil, &ImgBBError{
+			return nil, ImgBBError{
 				StatusCode: http.StatusInternalServerError,
 				StatusText: http.StatusText(http.StatusInternalServerError),
-				Err: errInfo{
-					Message: err.Error(),
+				Err: ErrInfo{
+					Message: fmt.Sprintf("json unmarshal: %v", err),
 				},
 			}
 		}
@@ -197,16 +256,16 @@ func (i *ImgBB) respParse(resp *http.Response) (*ImgBBResult, *ImgBBError) {
 		return &res, nil
 	}
 
-	var res ImgBBError
-	if err := json.Unmarshal(data, &res); err != nil {
-		return nil, &ImgBBError{
+	var errRes ImgBBError
+	if err := json.Unmarshal(data, &errRes); err != nil {
+		return nil, ImgBBError{
 			StatusCode: http.StatusInternalServerError,
 			StatusText: http.StatusText(http.StatusInternalServerError),
-			Err: errInfo{
-				Message: err.Error(),
+			Err: ErrInfo{
+				Message: fmt.Sprintf("json unmarshal: %v", err),
 			},
 		}
 	}
 
-	return nil, &res
+	return nil, errRes
 }
