@@ -1,6 +1,7 @@
 package imgbb
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -66,13 +67,13 @@ func Test_Upload_Success(t *testing.T) {
 
 	apiClient := New(*ts.Client(), "secret-key", WithEndpoint(ts.URL))
 
-	expect := &ImgBBResponse{
+	expect := &Response{
 		Data: Data{
 			ID:         "2ndCYJK",
 			Title:      "c1f64245afb2",
-			UrlViewer:  "https://ibb.co/2ndCYJK",
-			Url:        "https://i.ibb.co/w04Prt6/c1f64245afb2.gif",
-			DisplayUrl: "https://i.ibb.co/98W13PY/c1f64245afb2.gif",
+			URLViewer:  "https://ibb.co/2ndCYJK",
+			URL:        "https://i.ibb.co/w04Prt6/c1f64245afb2.gif",
+			DisplayURL: "https://i.ibb.co/98W13PY/c1f64245afb2.gif",
 			Width:      1,
 			Height:     1,
 			Size:       42,
@@ -83,29 +84,29 @@ func Test_Upload_Success(t *testing.T) {
 				Name:      "c1f64245afb2",
 				Mime:      "image/gif",
 				Extension: "gif",
-				Url:       "https://i.ibb.co/w04Prt6/c1f64245afb2.gif",
+				URL:       "https://i.ibb.co/w04Prt6/c1f64245afb2.gif",
 			},
 			Thumb: Info{
 				Filename:  "c1f64245afb2.gif",
 				Name:      "c1f64245afb2",
 				Mime:      "image/gif",
 				Extension: "gif",
-				Url:       "https://i.ibb.co/2ndCYJK/c1f64245afb2.gif",
+				URL:       "https://i.ibb.co/2ndCYJK/c1f64245afb2.gif",
 			},
 			Medium: Info{
 				Filename:  "c1f64245afb2.gif",
 				Name:      "c1f64245afb2",
 				Mime:      "image/gif",
 				Extension: "gif",
-				Url:       "https://i.ibb.co/98W13PY/c1f64245afb2.gif",
+				URL:       "https://i.ibb.co/98W13PY/c1f64245afb2.gif",
 			},
-			DeleteUrl: "https://ibb.co/2ndCYJK/670a7e48ddcb85ac340c717a41047e5c",
+			DeleteURL: "https://ibb.co/2ndCYJK/670a7e48ddcb85ac340c717a41047e5c",
 		},
 		Success:    true,
 		StatusCode: http.StatusOK,
 	}
 
-	actual, err := apiClient.Upload(img)
+	actual, err := apiClient.Upload(context.Background(), img)
 
 	assert.NoError(t, err)
 	assert.Equal(t, expect, actual)
@@ -138,7 +139,7 @@ func Test_Upload_ImgBBError(t *testing.T) {
 
 	apiClient := New(*ts.Client(), "secret-key", WithEndpoint(ts.URL))
 
-	expect := ImgBBError{
+	expect := Error{
 		StatusCode: http.StatusInternalServerError,
 		StatusText: "internal error",
 		Err: ErrInfo{
@@ -148,7 +149,7 @@ func Test_Upload_ImgBBError(t *testing.T) {
 		},
 	}
 
-	_, err := apiClient.Upload(img)
+	_, err := apiClient.Upload(context.Background(), img)
 
 	assert.Equal(t, expect, err)
 }
@@ -171,9 +172,9 @@ func Test_Upload_ClientInternalServerError(t *testing.T) {
 
 	apiClient := New(*ts.Client(), "secret-key", WithEndpoint(ts.URL))
 
-	_, err := apiClient.Upload(img)
+	_, err := apiClient.Upload(context.Background(), img)
 
-	assert.ErrorIs(t, err, ImgBBError{
+	assert.ErrorIs(t, err, Error{
 		StatusCode: http.StatusInternalServerError,
 		StatusText: http.StatusText(http.StatusInternalServerError),
 	})
@@ -184,9 +185,9 @@ func Test_Upload_EmptyImage(t *testing.T) {
 
 	apiClient := New(http.Client{}, "secret-key")
 
-	_, err := apiClient.Upload(img)
+	_, err := apiClient.Upload(context.Background(), img)
 
-	assert.ErrorIs(t, err, ImgBBError{
+	assert.ErrorIs(t, err, Error{
 		StatusCode: http.StatusBadRequest,
 		StatusText: http.StatusText(http.StatusBadRequest),
 	})
@@ -202,9 +203,9 @@ func Test_Upload_OversizeImage(t *testing.T) {
 
 	apiClient := New(http.Client{}, "secret-key")
 
-	_, err := apiClient.Upload(img)
+	_, err := apiClient.Upload(context.Background(), img)
 
-	assert.ErrorIs(t, err, ImgBBError{
+	assert.ErrorIs(t, err, Error{
 		StatusCode: http.StatusBadRequest,
 		StatusText: http.StatusText(http.StatusBadRequest),
 	})
@@ -229,9 +230,9 @@ func Test_Upload_ErrorUnmarshalFail(t *testing.T) {
 
 	apiClient := New(*ts.Client(), "secret-key", WithEndpoint(ts.URL))
 
-	_, err := apiClient.Upload(img)
+	_, err := apiClient.Upload(context.Background(), img)
 
-	assert.ErrorIs(t, err, ImgBBError{
+	assert.ErrorIs(t, err, Error{
 		StatusCode: http.StatusInternalServerError,
 		StatusText: http.StatusText(http.StatusInternalServerError),
 	})
