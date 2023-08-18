@@ -118,15 +118,15 @@ func WithEndpoint(endpoint string) Option {
 
 // ImgBB is a ImgBB api client.
 type ImgBB struct {
-	client http.Client
+	client *http.Client
 
 	key string
 
 	endpoint string
 }
 
-// New create a new ImgBB api client.
-func New(client http.Client, key string, opts ...Option) *ImgBB {
+// NewClient create a new ImgBB api client.
+func NewClient(client *http.Client, key string, opts ...Option) *ImgBB {
 	imgBB := &ImgBB{
 		client:   client,
 		key:      key,
