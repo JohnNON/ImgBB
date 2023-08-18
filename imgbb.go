@@ -93,7 +93,7 @@ type Data struct {
 	Height     int    `json:"height"`
 	Size       int    `json:"size"`
 	Time       int64  `json:"time"`
-	Expiration int64  `json:"expiration"`
+	TTL        int64  `json:"expiration"`
 	Image      Info   `json:"image"`
 	Thumb      Info   `json:"thumb"`
 	Medium     Info   `json:"medium"`
@@ -127,15 +127,15 @@ func NewClient(client *http.Client, key string) *Client {
 }
 
 // Upload is a function to upload image to ImgBB.
-func (i *Client) Upload(ctx context.Context, img *Image) (*Response, error) {
+func (i *Client) Upload(ctx context.Context, img *Image) (Response, error) {
 	req, err := i.prepareRequest(ctx, img)
 	if err != nil {
-		return nil, err
+		return Response{}, err
 	}
 
 	resp, err := i.client.Do(req)
 	if err != nil {
-		return nil, Error{
+		return Response{}, Error{
 			StatusCode: http.StatusInternalServerError,
 			StatusText: http.StatusText(http.StatusInternalServerError),
 			ErrInfo: ErrInfo{
@@ -208,10 +208,10 @@ func (i *Client) prepareRequest(ctx context.Context, img *Image) (*http.Request,
 	return req, nil
 }
 
-func (i *Client) respParse(resp *http.Response) (*Response, error) {
-	data, err := io.ReadAll(resp.Body)
+func (i *Client) respParse(resp *http.Response) (Response, error) {
+	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return nil, Error{
+		return Response{}, Error{
 			StatusCode: http.StatusInternalServerError,
 			StatusText: http.StatusText(http.StatusInternalServerError),
 			ErrInfo: ErrInfo{
@@ -220,10 +220,10 @@ func (i *Client) respParse(resp *http.Response) (*Response, error) {
 		}
 	}
 
-	if resp.StatusCode == http.StatusOK {
-		var res Response
-		if err := json.Unmarshal(data, &res); err != nil {
-			return nil, Error{
+	if resp.StatusCode != http.StatusOK {
+		var errRes Error
+		if err := json.Unmarshal(body, &errRes); err != nil {
+			return Response{}, Error{
 				StatusCode: http.StatusInternalServerError,
 				StatusText: http.StatusText(http.StatusInternalServerError),
 				ErrInfo: ErrInfo{
@@ -232,12 +232,12 @@ func (i *Client) respParse(resp *http.Response) (*Response, error) {
 			}
 		}
 
-		return &res, nil
+		return Response{}, errRes
 	}
 
-	var errRes Error
-	if err := json.Unmarshal(data, &errRes); err != nil {
-		return nil, Error{
+	var res Response
+	if err := json.Unmarshal(body, &res); err != nil {
+		return Response{}, Error{
 			StatusCode: http.StatusInternalServerError,
 			StatusText: http.StatusText(http.StatusInternalServerError),
 			ErrInfo: ErrInfo{
@@ -246,5 +246,5 @@ func (i *Client) respParse(resp *http.Response) (*Response, error) {
 		}
 	}
 
-	return nil, errRes
+	return res, nil
 }

@@ -14,11 +14,13 @@ Example of usage:
 package main
 
 import (
+    "context"
     "crypto/md5"
     "encoding/hex"
     "fmt"
     "io"
     "log"
+    "net/http"
     "os"
     "time"
 
@@ -52,12 +54,12 @@ func main() {
 
     imgBBClient := imgBB.NewClient(httpClient, key)
 
-    r, e := imgBBClient.Upload(context.Background(), img)
-    if e != nil {
-        log.Fatal(e)
+    resp, err := imgBBClient.Upload(context.Background(), img)
+    if err != nil {
+        log.Fatal(err)
     }
 
-    fmt.Printf("%v\n", r)
+    fmt.Printf("%v\n", resp)
 }
 
 func hashSum(b []byte) string {
