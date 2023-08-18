@@ -9,6 +9,7 @@ import (
 	"io"
 	"mime/multipart"
 	"net/http"
+	"strconv"
 )
 
 const (
@@ -30,14 +31,14 @@ var (
 
 // Image is a struct with image data to upload.
 type Image struct {
-	name       string
-	size       int
-	expiration string
-	file       []byte
+	name string
+	size int
+	ttl  uint64
+	file []byte
 }
 
 // NewImage creates a new Image.
-func NewImage(name string, expiration string, file []byte) (*Image, error) {
+func NewImage(name string, ttl uint64, file []byte) (*Image, error) {
 	size := len(file)
 
 	if size <= 0 {
@@ -49,10 +50,10 @@ func NewImage(name string, expiration string, file []byte) (*Image, error) {
 	}
 
 	return &Image{
-		name:       name,
-		size:       size,
-		expiration: expiration,
-		file:       file,
+		name: name,
+		size: size,
+		ttl:  ttl,
+		file: file,
 	}, nil
 }
 
@@ -108,40 +109,25 @@ type Info struct {
 	URL       string `json:"url"`
 }
 
-type Option func(*ImgBB)
-
-func WithEndpoint(endpoint string) Option {
-	return func(imgBB *ImgBB) {
-		imgBB.endpoint = endpoint
-	}
-}
-
-// ImgBB is a ImgBB api client.
-type ImgBB struct {
+// Client is an imgbb api client.
+type Client struct {
 	client *http.Client
 
 	key string
-
-	endpoint string
 }
 
 // NewClient create a new ImgBB api client.
-func NewClient(client *http.Client, key string, opts ...Option) *ImgBB {
-	imgBB := &ImgBB{
-		client:   client,
-		key:      key,
-		endpoint: endpoint,
-	}
-
-	for _, o := range opts {
-		o(imgBB)
+func NewClient(client *http.Client, key string) *Client {
+	imgBB := &Client{
+		client: client,
+		key:    key,
 	}
 
 	return imgBB
 }
 
 // Upload is a function to upload image to ImgBB.
-func (i *ImgBB) Upload(ctx context.Context, img *Image) (*Response, error) {
+func (i *Client) Upload(ctx context.Context, img *Image) (*Response, error) {
 	req, err := i.prepareRequest(ctx, img)
 	if err != nil {
 		return nil, err
@@ -162,7 +148,7 @@ func (i *ImgBB) Upload(ctx context.Context, img *Image) (*Response, error) {
 	return i.respParse(resp)
 }
 
-func (i *ImgBB) prepareRequest(ctx context.Context, img *Image) (*http.Request, error) {
+func (i *Client) prepareRequest(ctx context.Context, img *Image) (*http.Request, error) {
 	pipeReader, pipeWriter := io.Pipe()
 
 	mpWriter := multipart.NewWriter(pipeWriter)
@@ -186,8 +172,8 @@ func (i *ImgBB) prepareRequest(ctx context.Context, img *Image) (*http.Request, 
 			return
 		}
 
-		if len(img.expiration) > 0 {
-			err = mpWriter.WriteField("expiration", img.expiration)
+		if img.ttl > 0 {
+			err = mpWriter.WriteField("expiration", strconv.FormatUint(img.ttl, 10))
 			if err != nil {
 				return
 			}
@@ -203,7 +189,7 @@ func (i *ImgBB) prepareRequest(ctx context.Context, img *Image) (*http.Request, 
 		}
 	}()
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, i.endpoint, pipeReader)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, pipeReader)
 	if err != nil {
 		return nil, Error{
 			StatusCode: http.StatusInternalServerError,
@@ -222,7 +208,7 @@ func (i *ImgBB) prepareRequest(ctx context.Context, img *Image) (*http.Request, 
 	return req, nil
 }
 
-func (i *ImgBB) respParse(resp *http.Response) (*Response, error) {
+func (i *Client) respParse(resp *http.Response) (*Response, error) {
 	data, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, Error{
