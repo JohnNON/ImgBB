@@ -59,17 +59,17 @@ func NewImage(name string, ttl uint64, file []byte) (*Image, error) {
 
 // Error is an upload error response.
 type Error struct {
-	StatusCode int     `json:"status_code"`
-	StatusText string  `json:"status_txt"`
-	ErrInfo    ErrInfo `json:"error"`
+	StatusCode int       `json:"status_code"`
+	StatusText string    `json:"status_txt"`
+	Info       ErrorInfo `json:"error"`
 }
 
 func (e Error) Error() string {
-	return fmt.Sprintf("%d %s: %v", e.StatusCode, e.StatusText, e.ErrInfo)
+	return fmt.Sprintf("%d %s: %v", e.StatusCode, e.StatusText, e.Info)
 }
 
-// ErrInfo is an upload error info response.
-type ErrInfo struct {
+// ErrorInfo is an upload error info response.
+type ErrorInfo struct {
 	Message string `json:"message"`
 	Code    int    `json:"code"`
 	Context string `json:"context"`
@@ -135,13 +135,7 @@ func (i *Client) Upload(ctx context.Context, img *Image) (Response, error) {
 
 	resp, err := i.client.Do(req)
 	if err != nil {
-		return Response{}, Error{
-			StatusCode: http.StatusInternalServerError,
-			StatusText: http.StatusText(http.StatusInternalServerError),
-			ErrInfo: ErrInfo{
-				Message: fmt.Sprintf("http client request do: %v", err),
-			},
-		}
+		return Response{}, fmt.Errorf("%w", err)
 	}
 	defer resp.Body.Close()
 
@@ -191,13 +185,7 @@ func (i *Client) prepareRequest(ctx context.Context, img *Image) (*http.Request,
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, pipeReader)
 	if err != nil {
-		return nil, Error{
-			StatusCode: http.StatusInternalServerError,
-			StatusText: http.StatusText(http.StatusInternalServerError),
-			ErrInfo: ErrInfo{
-				Message: fmt.Sprintf("new request: %v", err),
-			},
-		}
+		return nil, fmt.Errorf("%w", err)
 	}
 
 	req.Header.Add("Content-Type", mpWriter.FormDataContentType())
@@ -211,25 +199,13 @@ func (i *Client) prepareRequest(ctx context.Context, img *Image) (*http.Request,
 func (i *Client) respParse(resp *http.Response) (Response, error) {
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return Response{}, Error{
-			StatusCode: http.StatusInternalServerError,
-			StatusText: http.StatusText(http.StatusInternalServerError),
-			ErrInfo: ErrInfo{
-				Message: fmt.Sprintf("read response body: %v", err),
-			},
-		}
+		return Response{}, fmt.Errorf("%w", err)
 	}
 
 	if resp.StatusCode != http.StatusOK {
 		var errRes Error
 		if err := json.Unmarshal(body, &errRes); err != nil {
-			return Response{}, Error{
-				StatusCode: http.StatusInternalServerError,
-				StatusText: http.StatusText(http.StatusInternalServerError),
-				ErrInfo: ErrInfo{
-					Message: fmt.Sprintf("json unmarshal: %v", err),
-				},
-			}
+			return Response{}, fmt.Errorf("%w", err)
 		}
 
 		return Response{}, errRes
@@ -237,13 +213,7 @@ func (i *Client) respParse(resp *http.Response) (Response, error) {
 
 	var res Response
 	if err := json.Unmarshal(body, &res); err != nil {
-		return Response{}, Error{
-			StatusCode: http.StatusInternalServerError,
-			StatusText: http.StatusText(http.StatusInternalServerError),
-			ErrInfo: ErrInfo{
-				Message: fmt.Sprintf("json unmarshal: %v", err),
-			},
-		}
+		return Response{}, fmt.Errorf("%w", err)
 	}
 
 	return res, nil
