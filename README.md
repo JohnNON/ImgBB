@@ -40,18 +40,27 @@ Example of usage:
             log.Fatal(err)
         }
 
-        img := imgBB.NewImage(hashSum(b), "60", b)
+        img, err := imgBB.NewImage(hashSum(b), "60", b)
+        if err != nil {
+            log.Fatal(err)
+        }
 
-        bb := imgBB.NewImgBB(key, 5*time.Second)
+        httpClient := &http.Client{
+            Timeout: 5 * time.Second,
+        }
 
-        r, e := bb.Upload(img)
+        imgBBClient := imgBB.NewClient(httpClient, key)
+
+        r, e := imgBBClient.Upload(context.Background(), img)
         if e != nil {
             log.Fatal(e)
         }
-        fmt.Println(r)
+
+        fmt.Printf("%v\n", r)
     }
 
     func hashSum(b []byte) string {
         sum := md5.Sum(b)
+
         return hex.EncodeToString(sum[:])
     }
