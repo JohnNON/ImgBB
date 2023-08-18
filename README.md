@@ -4,8 +4,6 @@ ImgBB is an [imgbb.com](https://imgbb.com) api client.
 
 Installation
 
-Via Golang package get command
-
     go get github.com/JohnNON/ImgBB
 
 Example of usage:
