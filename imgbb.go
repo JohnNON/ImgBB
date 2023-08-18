@@ -25,7 +25,7 @@ var (
 	ErrFileEmpty = errors.New("image file is empty")
 
 	// ErrFileSize is an error for too large image size.
-	ErrFileSize = errors.New("image is too large, max image size is 32mb")
+	ErrFileSize = errors.New("image is too large (max image size is 32mb)")
 )
 
 // Image is a struct with image data to upload.
@@ -37,24 +37,34 @@ type Image struct {
 }
 
 // NewImage creates a new Image.
-func NewImage(name string, expiration string, file []byte) *Image {
+func NewImage(name string, expiration string, file []byte) (*Image, error) {
+	size := len(file)
+
+	if size <= 0 {
+		return nil, ErrFileEmpty
+	}
+
+	if size > maxSize {
+		return nil, ErrFileSize
+	}
+
 	return &Image{
 		name:       name,
-		size:       len(file),
+		size:       size,
 		expiration: expiration,
 		file:       file,
-	}
+	}, nil
 }
 
 // Error is an upload error response.
 type Error struct {
 	StatusCode int     `json:"status_code"`
 	StatusText string  `json:"status_txt"`
-	Err        ErrInfo `json:"error"`
+	ErrInfo    ErrInfo `json:"error"`
 }
 
 func (e Error) Error() string {
-	return fmt.Sprintf("%d %s: %v", e.StatusCode, e.StatusText, e.Err)
+	return fmt.Sprintf("%d %s: %v", e.StatusCode, e.StatusText, e.ErrInfo)
 }
 
 // ErrInfo is an upload error info response.
@@ -81,8 +91,8 @@ type Data struct {
 	Width      int    `json:"width"`
 	Height     int    `json:"height"`
 	Size       int    `json:"size"`
-	Time       string `json:"time"`
-	Expiration string `json:"expiration"`
+	Time       int64  `json:"time"`
+	Expiration int64  `json:"expiration"`
 	Image      Info   `json:"image"`
 	Thumb      Info   `json:"thumb"`
 	Medium     Info   `json:"medium"`
@@ -132,57 +142,58 @@ func New(client http.Client, key string, opts ...Option) *ImgBB {
 
 // Upload is a function to upload image to ImgBB.
 func (i *ImgBB) Upload(ctx context.Context, img *Image) (*Response, error) {
-	if img.size <= 0 {
+	req, err := i.prepareRequest(ctx, img)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := i.client.Do(req)
+	if err != nil {
 		return nil, Error{
-			StatusCode: http.StatusBadRequest,
-			StatusText: http.StatusText(http.StatusBadRequest),
-			Err: ErrInfo{
-				Message: ErrFileEmpty.Error(),
+			StatusCode: http.StatusInternalServerError,
+			StatusText: http.StatusText(http.StatusInternalServerError),
+			ErrInfo: ErrInfo{
+				Message: fmt.Sprintf("http client request do: %v", err),
 			},
 		}
 	}
+	defer resp.Body.Close()
 
-	if img.size > maxSize {
-		return nil, Error{
-			StatusCode: http.StatusBadRequest,
-			StatusText: http.StatusText(http.StatusBadRequest),
-			Err: ErrInfo{
-				Message: ErrFileSize.Error(),
-			},
-		}
-	}
+	return i.respParse(resp)
+}
 
+func (i *ImgBB) prepareRequest(ctx context.Context, img *Image) (*http.Request, error) {
 	pipeReader, pipeWriter := io.Pipe()
 
-	multiWriter := multipart.NewWriter(pipeWriter)
+	mpWriter := multipart.NewWriter(pipeWriter)
 
 	go func() {
 		defer pipeWriter.Close()
-		defer multiWriter.Close()
+		defer mpWriter.Close()
 
-		err := multiWriter.WriteField("key", i.key)
+		err := mpWriter.WriteField("key", i.key)
 		if err != nil {
 			return
 		}
 
-		err = multiWriter.WriteField("type", "file")
+		err = mpWriter.WriteField("type", "file")
 		if err != nil {
 			return
 		}
 
-		err = multiWriter.WriteField("action", "upload")
+		err = mpWriter.WriteField("action", "upload")
 		if err != nil {
 			return
 		}
 
 		if len(img.expiration) > 0 {
-			err = multiWriter.WriteField("expiration", img.expiration)
+			err = mpWriter.WriteField("expiration", img.expiration)
 			if err != nil {
 				return
 			}
 		}
 
-		part, err := multiWriter.CreateFormFile("image", img.name)
+		part, err := mpWriter.CreateFormFile("image", img.name)
 		if err != nil {
 			return
 		}
@@ -197,30 +208,18 @@ func (i *ImgBB) Upload(ctx context.Context, img *Image) (*Response, error) {
 		return nil, Error{
 			StatusCode: http.StatusInternalServerError,
 			StatusText: http.StatusText(http.StatusInternalServerError),
-			Err: ErrInfo{
+			ErrInfo: ErrInfo{
 				Message: fmt.Sprintf("new request: %v", err),
 			},
 		}
 	}
 
-	req.Header.Add("Content-Type", multiWriter.FormDataContentType())
+	req.Header.Add("Content-Type", mpWriter.FormDataContentType())
 	req.Header.Add("Host", host)
 	req.Header.Add("Origin", origin)
 	req.Header.Add("Referer", referer)
 
-	resp, err := i.client.Do(req)
-	if err != nil {
-		return nil, Error{
-			StatusCode: http.StatusInternalServerError,
-			StatusText: http.StatusText(http.StatusInternalServerError),
-			Err: ErrInfo{
-				Message: fmt.Sprintf("http client request do: %v", err),
-			},
-		}
-	}
-	defer resp.Body.Close()
-
-	return i.respParse(resp)
+	return req, nil
 }
 
 func (i *ImgBB) respParse(resp *http.Response) (*Response, error) {
@@ -229,7 +228,7 @@ func (i *ImgBB) respParse(resp *http.Response) (*Response, error) {
 		return nil, Error{
 			StatusCode: http.StatusInternalServerError,
 			StatusText: http.StatusText(http.StatusInternalServerError),
-			Err: ErrInfo{
+			ErrInfo: ErrInfo{
 				Message: fmt.Sprintf("read response body: %v", err),
 			},
 		}
@@ -241,7 +240,7 @@ func (i *ImgBB) respParse(resp *http.Response) (*Response, error) {
 			return nil, Error{
 				StatusCode: http.StatusInternalServerError,
 				StatusText: http.StatusText(http.StatusInternalServerError),
-				Err: ErrInfo{
+				ErrInfo: ErrInfo{
 					Message: fmt.Sprintf("json unmarshal: %v", err),
 				},
 			}
@@ -255,7 +254,7 @@ func (i *ImgBB) respParse(resp *http.Response) (*Response, error) {
 		return nil, Error{
 			StatusCode: http.StatusInternalServerError,
 			StatusText: http.StatusText(http.StatusInternalServerError),
-			Err: ErrInfo{
+			ErrInfo: ErrInfo{
 				Message: fmt.Sprintf("json unmarshal: %v", err),
 			},
 		}
