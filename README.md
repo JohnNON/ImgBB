@@ -41,7 +41,7 @@ func main() {
         log.Fatal(err)
     }
 
-    img, err := imgBB.NewImage(hashSum(b), 60, b)
+    img, err := imgBB.NewImageFromFile(hashSum(b), 60, b)
     if err != nil {
         log.Fatal(err)
     }

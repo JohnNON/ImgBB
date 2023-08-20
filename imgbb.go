@@ -31,14 +31,31 @@ var (
 
 // Image is a struct with image data to upload.
 type Image struct {
-	name string
-	size int
-	ttl  uint64
-	file []byte
+	name   string
+	size   int
+	ttl    uint64
+	source string
+	file   []byte
 }
 
 // NewImage creates a new Image.
-func NewImage(name string, ttl uint64, file []byte) (*Image, error) {
+func NewImage(name string, ttl uint64, source string) (*Image, error) {
+	size := len(source)
+
+	if size <= 0 {
+		return nil, ErrFileEmpty
+	}
+
+	return &Image{
+		name:   name,
+		size:   size,
+		ttl:    ttl,
+		source: source,
+	}, nil
+}
+
+// NewImageFromFile creates a new Image from file.
+func NewImageFromFile(name string, ttl uint64, file []byte) (*Image, error) {
 	size := len(file)
 
 	if size <= 0 {
@@ -156,16 +173,6 @@ func (i *Client) prepareRequest(ctx context.Context, img *Image) (*http.Request,
 			return
 		}
 
-		err = mpWriter.WriteField("type", "file")
-		if err != nil {
-			return
-		}
-
-		err = mpWriter.WriteField("action", "upload")
-		if err != nil {
-			return
-		}
-
 		if img.ttl > 0 {
 			err = mpWriter.WriteField("expiration", strconv.FormatUint(img.ttl, 10))
 			if err != nil {
@@ -173,12 +180,26 @@ func (i *Client) prepareRequest(ctx context.Context, img *Image) (*http.Request,
 			}
 		}
 
-		part, err := mpWriter.CreateFormFile("image", img.name)
+		if img.file != nil {
+			part, err := mpWriter.CreateFormFile("image", img.name)
+			if err != nil {
+				return
+			}
+
+			if _, err = io.Copy(part, bytes.NewReader(img.file)); err != nil {
+				return
+			}
+
+			return
+		}
+
+		err = mpWriter.WriteField("name", img.name)
 		if err != nil {
 			return
 		}
 
-		if _, err = io.Copy(part, bytes.NewReader(img.file)); err != nil {
+		err = mpWriter.WriteField("image", img.source)
+		if err != nil {
 			return
 		}
 	}()
