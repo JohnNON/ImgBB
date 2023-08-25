@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"mime/multipart"
@@ -17,16 +16,6 @@ const (
 	host     = "imgbb.com"
 	origin   = "https://imgbb.com"
 	referer  = "https://imgbb.com/"
-
-	maxSize = 33554432
-)
-
-var (
-	// ErrFileEmpty is an error for empty image file.
-	ErrFileEmpty = errors.New("image file is empty")
-
-	// ErrFileSize is an error for too large image size.
-	ErrFileSize = errors.New("image is too large (max image size is 32mb)")
 )
 
 // Image is a struct with image data to upload.
@@ -40,15 +29,9 @@ type Image struct {
 
 // NewImage creates a new Image.
 func NewImage(name string, ttl uint64, source string) (*Image, error) {
-	size := len(source)
-
-	if size <= 0 {
-		return nil, ErrFileEmpty
-	}
-
 	return &Image{
 		name:   name,
-		size:   size,
+		size:   len(source),
 		ttl:    ttl,
 		source: source,
 	}, nil
@@ -56,19 +39,9 @@ func NewImage(name string, ttl uint64, source string) (*Image, error) {
 
 // NewImageFromFile creates a new Image from file.
 func NewImageFromFile(name string, ttl uint64, file []byte) (*Image, error) {
-	size := len(file)
-
-	if size <= 0 {
-		return nil, ErrFileEmpty
-	}
-
-	if size > maxSize {
-		return nil, ErrFileSize
-	}
-
 	return &Image{
 		name: name,
-		size: size,
+		size: len(file),
 		ttl:  ttl,
 		file: file,
 	}, nil
